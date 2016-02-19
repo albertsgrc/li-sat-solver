@@ -1,0 +1,9 @@
+// Propagaciones mas rapidas que el picosat
+
+// Comparar con el PicoSat cuando es insatisfactible
+// Satisfactible a veces acabar antes por potra
+// Intentar optimizar insatiscatible
+
+// Mejorar propagateGivesConflict() (va a correr muchas veces)
+
+// Mejorar getNextDecisionLiteral() (heurísticas)
