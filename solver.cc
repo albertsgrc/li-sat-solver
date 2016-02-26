@@ -2,17 +2,22 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <vector>
+
+#include <unordered_set>
 using namespace std;
 
 #define UNDEF -1
 #define TRUE 1
 #define FALSE 0
 
+const int NO_DECISION_LITERAL = 0;
+const int UPPER_IS_DECISION_MARK = 0;
+
 // Nombre de variables del test
-uint numVars;
+uint n_vars;
 
 // Nombre de clàusules del test
-uint numClauses;
+uint n_clauses;
 
 // Vector on cada element és una clàusula,
 // que és alhora un vector de literals
@@ -25,39 +30,92 @@ vector<vector<int> > clauses;
 vector<int> model;
 
 // Ni puta idea
-vector<int> modelStack;
+vector<int> model_stack;
 
 // Index del següent literal que s'ha decidit propagar
-// en la modelStack
-uint indexOfNextLitToPropagate;
+// en la model_stack
+uint ind_next_lit_to_propagate;
 
 // Nombre de decisions que s'han pres fins al moment
-uint decisionLevel;
+uint decision_level;
 
 
-void readClauses() {
+/**
+ My datastructures
+**/
+
+vector<vector<int>> clauses_pos;
+vector<vector<int>> clauses_neg;
+
+void skip_comments() {
     // Skip comments
     char c = cin.get();
     while (c == 'c') {
         while (c != '\n') c = cin.get();
         c = cin.get();
-    }  
-  
-    // Read "cnf numVars numClauses"
-    string aux;
-    cin >> aux >> numVars >> numClauses;
-    clauses.resize(numClauses);  
+    }
+}
 
-    // Read clauses
-    for (uint i = 0; i < numClauses; ++i) {
+void read_header() {
+    string aux;
+    cin >> aux >> n_vars >> n_clauses;
+    clauses.resize(n_clauses); 
+}
+
+void read_clauses() {
+    for (uint i = 0; i < n_clauses; ++i) {
         int lit;
         while (cin >> lit and lit != 0) clauses[i].push_back(lit);
-    }    
+    }
+}
+
+void read_clauses_file() {
+    skip_comments();
+     
+    read_header();
+
+    read_clauses();    
 }
 
 
+void assign_clauses_sign_info() {
+    for (int var = 1; var <= n_vars; ++var) {
+        for (int i = 0; i < n_clauses; ++i) {
+            for (int j = 0; j < clauses[i].size(); ++j) {
+                int lit = clauses[i][j];
+                
+                if (lit > 0) {
+                    if (lit == var) {
+                        clauses_pos[var].push_back(i);
+                        break;
+                    }
+                } 
+                else if (lit == -var) {
+                    clauses_neg[var].push_back(i);
+                    break;   
+                }
+            }
+        }
+    }
+}
 
-int currentValueInModel(int lit) {
+void init_data_structures() {
+    read_clauses_file();
+
+    int greatest_var = n_vars + 1;
+    model.resize(greatest_var,UNDEF);
+
+    clauses_pos.resize(greatest_var);
+    clauses_neg.resize(greatest_var);
+
+    assign_clauses_sign_info();
+
+    ind_next_lit_to_propagate = 0;  
+    decision_level = 0;
+}
+
+
+inline int current_value_in_model(int lit) {
     if (lit >= 0) return model[lit];
     else {
         if (model[-lit] == UNDEF) return UNDEF;
@@ -69,30 +127,30 @@ int currentValueInModel(int lit) {
 // independentment de si és una variable negada o no
 // Aquesta mateixa funció serveix per posarlos a FALSE,
 // cridant-la amb el literal negat.
-void setLiteralToTrue(int lit) {
-    modelStack.push_back(lit);
+inline void set_lit_to_true(int lit) {
+    model_stack.push_back(lit);
     if (lit > 0) model[lit] = TRUE;
     else model[-lit] = FALSE;     
 }
 
 
-bool propagateGivesConflict() {
-    while (indexOfNextLitToPropagate < modelStack.size()) {
-        ++indexOfNextLitToPropagate;
+bool propagate_gives_conflict() {
+    while (ind_next_lit_to_propagate < model_stack.size()) {
+        ++ind_next_lit_to_propagate;
         
-        for (uint i = 0; i < numClauses; ++i) {
+        for (uint i = 0; i < n_clauses; ++i) {
             bool someLitTrue = false;
             int numUndefs = 0;
             int lastLitUndef = 0;
             
             for (uint k = 0; not someLitTrue and k < clauses[i].size(); ++k){
-                int val = currentValueInModel(clauses[i][k]);
+                int val = current_value_in_model(clauses[i][k]);
                 if (val == TRUE) someLitTrue = true;
                 else if (val == UNDEF) { ++numUndefs; lastLitUndef = clauses[i][k]; }
             }
             
             if (not someLitTrue and numUndefs == 0) return true; // conflict! all lits false
-            else if (not someLitTrue and numUndefs == 1) setLiteralToTrue(lastLitUndef);  
+            else if (not someLitTrue and numUndefs == 1) set_lit_to_true(lastLitUndef);  
         }    
     }
     
@@ -100,45 +158,59 @@ bool propagateGivesConflict() {
 }
 
 
-void backtrack() {
-    uint i = modelStack.size() -1;
+inline void decide_literal_true(int decision_lit) {
+    model_stack.push_back(UPPER_IS_DECISION_MARK);
+    ++ind_next_lit_to_propagate;
+    ++decision_level;
+    set_lit_to_true(decision_lit);
+}
+
+inline void decide_literal_false(int decision_lit) {
+    model_stack.pop_back(); // remove the DL mark
+    --decision_level;
+    ind_next_lit_to_propagate = model_stack.size();
+    set_lit_to_true(-decision_lit); // reverse last decision
+}
+
+inline int undo_until_last_decision() {
+    uint i = model_stack.size() - 1;
     int lit = 0;
 
     // Desfem totes les propagacions
     // fins que ens trobem una decisió
-    while (modelStack[i] != 0) {
-        lit = modelStack[i];
+    while (model_stack[i] != UPPER_IS_DECISION_MARK) {
+        lit = model_stack[i];
         model[abs(lit)] = UNDEF;
-        modelStack.pop_back();
+        model_stack.pop_back();
         --i;
     }
-  
-    // at this point, lit is the last decision
-    modelStack.pop_back(); // remove the DL mark
-    --decisionLevel;
-    indexOfNextLitToPropagate = modelStack.size();
-    setLiteralToTrue(-lit);  // reverse last decision
+
+    return lit;
+}
+
+void backtrack() {
+    decide_literal_false(undo_until_last_decision());
 }
 
 
 // Heuristic for finding the next decision literal:
 // Devuelve 0 cuando todas las variables están definidas
-int getNextDecisionLiteral(){
-    for (uint i = 1; i <= numVars; ++i) // stupid heuristic:
+int get_next_decision_literal(){
+    for (uint i = 1; i <= n_vars; ++i) // stupid heuristic:
         if (model[i] == UNDEF) return i;  // returns first UNDEF var, positively
     
-    return 0; // reurns 0 when all literals are defined
+    return NO_DECISION_LITERAL; // reurns 0 when all literals are defined
 }
 
 /**
   Comprova que la interpretació efectivament es un model
   i.e totes les clàusules són positives
 **/
-void checkmodel(){
-    for (int i = 0; i < numClauses; ++i) {
+void check_model() {
+    for (int i = 0; i < n_clauses; ++i) {
         bool someTrue = false;
         for (int j = 0; not someTrue and j < clauses[i].size(); ++j)
-            someTrue = (currentValueInModel(clauses[i][j]) == TRUE);
+            someTrue = (current_value_in_model(clauses[i][j]) == TRUE);
         
         if (not someTrue) {
             cout << "Error in model, clause is not satisfied:";
@@ -149,37 +221,48 @@ void checkmodel(){
     }  
 }
 
-int main(){ 
-    readClauses(); // reads numVars, numClauses and clauses
-  
-    model.resize(numVars+1,UNDEF);
-  
-    indexOfNextLitToPropagate = 0;  
-    decisionLevel = 0;
-  
-    // Take care of initial unit clauses, if any
-    for (uint i = 0; i < numClauses; ++i)
+void finish_with_result(bool satisfiable) {
+    if (satisfiable) {
+        check_model(); 
+        cout << "SATISFIABLE" << endl; 
+        exit(10);
+    }
+    else {
+        cout << "UNSATISFIABLE" << endl; 
+        exit(20);
+    }
+}
+
+
+void take_care_of_initial_unit_clauses() {
+    for (uint i = 0; i < n_clauses; ++i)
         if (clauses[i].size() == 1) {
             int lit = clauses[i][0];
-            int val = currentValueInModel(lit);
-            if (val == FALSE) {cout << "UNSATISFIABLE" << endl; return 10;}
-            else if (val == UNDEF) setLiteralToTrue(lit);
+            int val = current_value_in_model(lit);
+            if (val == FALSE) finish_with_result(false);
+            else if (val == UNDEF) set_lit_to_true(lit);
         }
-  
-    // DPLL algorithm
+}
+
+void run_dpll() {
     while (true) {
-        while ( propagateGivesConflict() ) {
-            if ( decisionLevel == 0) { cout << "UNSATISFIABLE" << endl; return 10; }
-            backtrack();
+        while (propagate_gives_conflict()) {
+            if (decision_level == 0) finish_with_result(false); 
+            else backtrack();
         }
 
-        int decisionLit = getNextDecisionLiteral();
-        if (decisionLit == 0) { checkmodel(); cout << "SATISFIABLE" << endl; return 20; }
-    
-        // start new decision level:
-        modelStack.push_back(0);  // push mark indicating new DL
-        ++indexOfNextLitToPropagate;
-        ++decisionLevel;
-        setLiteralToTrue(decisionLit);    // now push decisionLit on top of the mark
+        int decision_lit = get_next_decision_literal();
+        if (decision_lit == NO_DECISION_LITERAL) 
+            finish_with_result(true);
+        
+        decide_literal_true(decision_lit);
     }
+}
+
+int main() { 
+    init_data_structures();
+  
+    take_care_of_initial_unit_clauses();
+  
+    run_dpll();
 }  
