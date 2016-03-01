@@ -1,5 +1,4 @@
 #include <iostream>
-#include <stdlib.h>
 #include <algorithm>
 #include <vector>
 #include <ctime>
