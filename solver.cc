@@ -26,7 +26,7 @@ uint n_vars;
 vector<int> model;
 
 uint ind_next_lit_to_propagate;
-vector<int> model_stack; // Contains absolute variables
+vector<int> model_stack;
 
 uint decision_level;
 
@@ -40,8 +40,8 @@ clock_t begin_clk;
 /** PROPAGATION OPTIMIZATION DS **/
 /*********************************/
 
-vector<vector<int> > clauses_pos_by_var;
-vector<vector<int> > clauses_neg_by_var;
+vector<vector<vector<int>* > > clauses_pos_by_var;
+vector<vector<vector<int>* > > clauses_neg_by_var;
 
 /*******************/
 /** HEURISTICS DS **/
@@ -80,14 +80,11 @@ inline int current_value_in_model(int lit) {
 
 // IDEA: Reverse condition
 inline void set_lit_to_true(int lit) {
-    if (lit > 0) {
-        model_stack.push_back(lit);
-        model[lit] = TRUE;
-    }
-    else {
-        model_stack.push_back(-lit);
-        model[-lit] = FALSE;
-}   }
+    if (lit > 0) model[lit] = TRUE;
+    else model[-lit] = FALSE;
+
+    model_stack.push_back(lit);
+}
 
 void check_model() {
     for (int i = 0; i < n_clauses; ++i) {
@@ -106,7 +103,7 @@ void finish_with_result(bool satisfiable) {
     double elapsed_secs = double(clock() - begin_clk)/CLOCKS_PER_SEC;
     cout << "time: " << elapsed_secs << " secs" << endl;
 
-    cerr << "decisions: " << decisions << endl
+    cout << "decisions: " << decisions << endl
          << "propagations/sec: " << propagations/elapsed_secs << endl;
 
     if (satisfiable) { check_model(); cout << "SATISFIABLE" << endl; }
@@ -146,16 +143,16 @@ inline bool var_is_in_clause(int clause, int var) {
 /***********************************/
 
 void get_var_appearance_info() {
-    clauses_pos_by_var.resize(n_vars + 1, vector<int>(0));
-    clauses_neg_by_var.resize(n_vars + 1, vector<int>(0));
+    clauses_pos_by_var.resize(n_vars + 1);
+    clauses_neg_by_var.resize(n_vars + 1);
 
     for (int var = 1; var <= n_vars; ++var)
         for (int clause = 0; clause < n_clauses; ++clause) {
             int index = get_var_index_in_clause(clause, var);
 
             if (index != UNDEF) {
-                if (clauses[clause][index] > 0) clauses_pos_by_var[var].push_back(clause);
-                else clauses_neg_by_var[var].push_back(clause);
+                if (clauses[clause][index] > 0) clauses_pos_by_var[var].push_back(&clauses[clause]);
+                else clauses_neg_by_var[var].push_back(&clauses[clause]);
             }
         }
 }
@@ -222,21 +219,21 @@ inline int get_next_decision_literal() {
 }
 
 inline bool propagate() {
-    int var = model_stack[ind_next_lit_to_propagate];
+    int lit_to_propagate = model_stack[ind_next_lit_to_propagate];
 
-    vector<int>& clauses_opposite = model[var] == TRUE ?
-                                        clauses_neg_by_var[var] :
-                                        clauses_pos_by_var[var];
+    vector<vector<int>* >& clauses_opposite = lit_to_propagate > 0 ?
+                                        clauses_neg_by_var[lit_to_propagate] :
+                                        clauses_pos_by_var[-lit_to_propagate];
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
         // TODO: Mirar si es pot marcar el nombre de clausules indefinides dinamicament
-        int clause = clauses_opposite[i];
+        vector<int>& clause = *clauses_opposite[i];
         int num_undefs = 0;
         int last_lit_undef;
         bool some_lit_true = false;
 
-        for (int j = 0; not some_lit_true and j < clauses[clause].size(); ++j) {
-            int lit = clauses[clause][j];
+        for (int j = 0; not some_lit_true and num_undefs < 2 and j < clause.size(); ++j) {
+            int lit = clause[j];
             int val = current_value_in_model(lit);
 
             if (val == TRUE) some_lit_true = true;
@@ -295,7 +292,7 @@ void backtrack() {
 
     while (model_stack[i] != MARK_UPPER_IS_DECISION) {
         lit = model_stack[i];
-        model[lit] = UNDEF;
+        model[abs(lit)] = UNDEF;
         model_stack.pop_back();
         --i;
     }
