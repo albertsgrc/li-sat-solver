@@ -2,90 +2,132 @@
 #include <stdlib.h>
 #include <algorithm>
 #include <vector>
-#include "temps.hh"
+#include <ctime>
 using namespace std;
+
+/***************/
+/** CONSTANTS **/
+/***************/
 
 #define UNDEF -1
 #define TRUE 1
 #define FALSE 0
 
 const int ALL_LITERALS_DEFINED = 0;
-const int UPPER_IS_DECISION_MARK = 0;
+const int MARK_UPPER_IS_DECISION = 0;
 
-// Nombre de variables del test
-uint n_vars;
+/***************************/
+/** BASIC DATA STRUCTURES **/
+/***************************/
 
-// Nombre de clàusules del test
 uint n_clauses;
-
-// Vector on cada element és una clàusula,
-// que és alhora un vector de literals
 vector<vector<int> > clauses;
 
-// Interpretació de la fórmula
-// Quan una variable no s'ha propagat encara
-// El seu valor en l'array es indefinit
-// Només hi ha un valor per variable
+uint n_vars;
 vector<int> model;
 
-// Ni puta idea
-vector<int> model_stack;
-
-// Index del següent literal que s'ha decidit propagar
-// en la model_stack
 uint ind_next_lit_to_propagate;
+vector<int> model_stack; // Contains absolute variables
 
-// Nombre de decisions que s'han pres fins al moment
 uint decision_level;
+
+// Statistics
 
 uint decisions;
 uint propagations;
+clock_t begin_clk;
 
+/*********************************/
+/** PROPAGATION OPTIMIZATION DS **/
+/*********************************/
 
-/**
- My datastructures
-**/
+vector<vector<int> > clauses_pos_by_var;
+vector<vector<int> > clauses_neg_by_var;
 
-Cronometre<C_MILISEGONS> total;
+/*******************/
+/** HEURISTICS DS **/
+/*******************/
 
-vector<vector<int> > clauses_pos;
-vector<vector<int> > clauses_neg;
-
-// Heuristics
 vector<int> var_occurrences;
 vector<int> vars_sorted_by_most_occurring;
 
+/***********************/
+/** TRIVIAL FUNCTIONS **/
+/***********************/
 
-void skip_comments() {
-    // Skip comments
+void read_clauses() {
     char c = cin.get();
     while (c == 'c') {
         while (c != '\n') c = cin.get();
         c = cin.get();
     }
-}
 
-void read_header() {
     string aux;
     cin >> aux >> n_vars >> n_clauses;
     clauses.resize(n_clauses);
-}
 
-void read_clauses() {
     for (uint i = 0; i < n_clauses; ++i) {
         int lit;
         while (cin >> lit and lit != 0) clauses[i].push_back(lit);
+}   }
+
+// IDEA: Reverse condition
+inline int current_value_in_model(int lit) {
+    if (lit >= 0) return model[lit];
+    else {
+        if (model[-lit] == UNDEF) return UNDEF;
+        else return 1 - model[-lit];
+}   }
+
+// IDEA: Reverse condition
+inline void set_lit_to_true(int lit) {
+    if (lit > 0) {
+        model_stack.push_back(lit);
+        model[lit] = TRUE;
     }
+    else {
+        model_stack.push_back(-lit);
+        model[-lit] = FALSE;
+}   }
+
+void check_model() {
+    for (int i = 0; i < n_clauses; ++i) {
+        bool someTrue = false;
+        for (int j = 0; not someTrue and j < clauses[i].size(); ++j)
+            someTrue = (current_value_in_model(clauses[i][j]) == TRUE);
+
+        if (not someTrue) {
+            cout << "Error in model, clause is not satisfied:";
+            for (int j = 0; j < clauses[i].size(); ++j) cout << clauses[i][j] << " ";
+            cout << endl;
+            exit(1);
+}   }   }
+
+void finish_with_result(bool satisfiable) {
+    double elapsed_secs = double(clock() - begin_clk)/CLOCKS_PER_SEC;
+    cout << "time: " << elapsed_secs << " secs" << endl;
+
+    cerr << "decisions: " << decisions << endl
+         << "propagations/sec: " << propagations/elapsed_secs << endl;
+
+    if (satisfiable) { check_model(); cout << "SATISFIABLE" << endl; }
+    else cout << "UNSATISFIABLE" << endl;
+
+    exit(satisfiable ? 10 : 20);
 }
 
-void read_clauses_file() {
-    skip_comments();
+void take_care_of_initial_unit_clauses() {
+    for (uint i = 0; i < n_clauses; ++i) {
+        if (clauses[i].size() == 1) {
+            int lit = clauses[i][0];
+            int val = current_value_in_model(lit);
+            if (val == FALSE) finish_with_result(false);
+            else if (val == UNDEF) set_lit_to_true(lit);
+}   }   }
 
-    read_header();
-
-    read_clauses();
-}
-
+/***********/
+/** UTILS **/
+/***********/
 
 int get_var_index_in_clause(int clause, int var) {
     for (int j = 0; j < clauses[clause].size(); ++j) {
@@ -96,32 +138,38 @@ int get_var_index_in_clause(int clause, int var) {
     return UNDEF;
 }
 
-void assign_clauses_sign_info() {
-    clauses_pos.resize(n_vars + 1, vector<int>(0));
-    clauses_neg.resize(n_vars + 1, vector<int>(0));
+inline bool var_is_in_clause(int clause, int var) {
+    return get_var_index_in_clause(clause, var) != UNDEF;
+}
 
-    for (int var = 1; var <= n_vars; ++var) {
+/***********************************/
+/** PROPAGATION DS INITIALIZATION **/
+/***********************************/
+
+void get_var_appearance_info() {
+    clauses_pos_by_var.resize(n_vars + 1, vector<int>(0));
+    clauses_neg_by_var.resize(n_vars + 1, vector<int>(0));
+
+    for (int var = 1; var <= n_vars; ++var)
         for (int clause = 0; clause < n_clauses; ++clause) {
             int index = get_var_index_in_clause(clause, var);
 
             if (index != UNDEF) {
-                if (clauses[clause][index] > 0) clauses_pos[var].push_back(clause);
-                else clauses_neg[var].push_back(clause);
+                if (clauses[clause][index] > 0) clauses_pos_by_var[var].push_back(clause);
+                else clauses_neg_by_var[var].push_back(clause);
             }
         }
-    }
 }
 
-inline bool var_in_clause(int clause, int var) {
-    return get_var_index_in_clause(clause, var) != UNDEF;
-}
+/*****************************/
+/** HEURISTICS COMPUTATIONS **/
+/*****************************/
 
 int get_var_occurrences(int var) {
     int n_occurrences = 0;
 
-    for (int clause = 0; clause < n_clauses; ++clause)  {
-        if (var_in_clause(clause, var)) ++n_occurrences;
-    }
+    for (int clause = 0; clause < n_clauses; ++clause)
+        if (var_is_in_clause(clause, var)) ++n_occurrences;
 
     return n_occurrences;
 }
@@ -139,84 +187,91 @@ void assign_occurrence_sorted_var_list() {
         vars_sorted_by_most_occurring[var-1] = var;
     }
 
-    sort(vars_sorted_by_most_occurring.begin(), vars_sorted_by_most_occurring.end(), occurrence_sort);
+    sort(vars_sorted_by_most_occurring.begin(),
+         vars_sorted_by_most_occurring.end(),
+         occurrence_sort);
 }
 
+/*******************************************/
+/** DATA STRUCTURE INITIALIZATION MANAGER **/
+/*******************************************/
+
 void init_data_structures() {
-    read_clauses_file();
+    read_clauses();
 
     model.resize(n_vars + 1, UNDEF);
 
-    assign_clauses_sign_info();
+    get_var_appearance_info();
 
     assign_occurrence_sorted_var_list();
 
     ind_next_lit_to_propagate = decision_level = decisions = propagations = 0;
 }
 
-
-inline int current_value_in_model(int lit) {
-    if (lit >= 0) return model[lit];
-    else {
-        if (model[-lit] == UNDEF) return UNDEF;
-        else return 1 - model[-lit];
-    }
-}
-
-// El valor que retornarà l'avaluació del literal serà TRUE,
-// independentment de si és una variable negada o no
-// Aquesta mateixa funció serveix per posarlos a FALSE,
-// cridant-la amb el literal negat.
-inline void set_lit_to_true(int lit) {
-    model_stack.push_back(lit);
-    if (lit > 0) model[lit] = TRUE;
-    else model[-lit] = FALSE;
-}
-
-inline bool is_undefined(int var) {
-    return model[var] == UNDEF;
-}
+/***************************************************************/
+/** IMPORTANT METHODS - get_next_decision_literal & propagate **/
+/***************************************************************/
 
 inline int get_next_decision_literal() {
     for (int i = 0; i < n_vars; ++i) {
         int var = vars_sorted_by_most_occurring[i];
 
-        if (is_undefined(var)) return var;
+        if (model[var] == UNDEF) return var;
     }
 
     return ALL_LITERALS_DEFINED;
 }
 
-bool propagate_gives_conflict() {
-    while (ind_next_lit_to_propagate < model_stack.size()) {
-        ++propagations;
+inline bool propagate() {
+    int var = model_stack[ind_next_lit_to_propagate];
 
-        ++ind_next_lit_to_propagate;
+    vector<int>& clauses_opposite = model[var] == TRUE ?
+                                        clauses_neg_by_var[var] :
+                                        clauses_pos_by_var[var];
 
-        for (uint i = 0; i < n_clauses; ++i) {
-            bool someLitTrue = false;
-            int numUndefs = 0;
-            int lastLitUndef = 0;
+    for (int i = 0; i < clauses_opposite.size(); ++i) {
+        // TODO: Mirar si es pot marcar el nombre de clausules indefinides dinamicament
+        int clause = clauses_opposite[i];
+        int num_undefs = 0;
+        int last_lit_undef;
+        bool some_lit_true = false;
 
-            for (uint k = 0; not someLitTrue and k < clauses[i].size(); ++k){
-                int val = current_value_in_model(clauses[i][k]);
-                if (val == TRUE) someLitTrue = true;
-                else if (val == UNDEF) { ++numUndefs; lastLitUndef = clauses[i][k]; }
-            }
+        for (int j = 0; not some_lit_true and j < clauses[clause].size(); ++j) {
+            int lit = clauses[clause][j];
+            int val = current_value_in_model(lit);
 
-            if (not someLitTrue and numUndefs == 0) return true; // conflict! all lits false
-            else if (not someLitTrue and numUndefs == 1) set_lit_to_true(lastLitUndef);
+            if (val == TRUE) some_lit_true = true;
+            else if (val == UNDEF) { ++num_undefs; last_lit_undef = lit; }
+        }
+
+        if (not some_lit_true) {
+            if (num_undefs == 0) return true;
+            else if (num_undefs == 1) set_lit_to_true(last_lit_undef);
         }
     }
 
     return false;
 }
 
+inline bool propagate_gives_conflict() {
+    while (ind_next_lit_to_propagate < model_stack.size()) {
+        if (propagate()) return true;
+
+        ++propagations;
+        ++ind_next_lit_to_propagate;
+    }
+
+    return false;
+}
+
+/***************/
+/** DECISIONS **/
+/***************/
 
 inline void decide_literal_true(int decision_lit) {
     ++decisions;
 
-    model_stack.push_back(UPPER_IS_DECISION_MARK);
+    model_stack.push_back(MARK_UPPER_IS_DECISION);
     ++ind_next_lit_to_propagate;
     ++decision_level;
     set_lit_to_true(decision_lit);
@@ -231,72 +286,27 @@ inline void decide_literal_false(int decision_lit) {
     set_lit_to_true(-decision_lit); // reverse last decision
 }
 
-inline int undo_until_last_decision() {
-    uint i = model_stack.size() - 1;
-    int lit = 0;
+/***************************/
+/** DECISION BACKTRACKING **/
+/***************************/
 
-    // Desfem totes les propagacions
-    // fins que ens trobem una decisió
-    while (model_stack[i] != UPPER_IS_DECISION_MARK) {
+void backtrack() {
+    uint i = model_stack.size() - 1;
+    int lit;
+
+    while (model_stack[i] != MARK_UPPER_IS_DECISION) {
         lit = model_stack[i];
-        model[abs(lit)] = UNDEF;
+        model[lit] = UNDEF;
         model_stack.pop_back();
         --i;
     }
 
-    return lit;
+    decide_literal_false(lit);
 }
 
-void backtrack() {
-    decide_literal_false(undo_until_last_decision());
-}
-
-/**
-  Comprova que la interpretació efectivament es un model
-  i.e totes les clàusules són positives
-**/
-void check_model() {
-    for (int i = 0; i < n_clauses; ++i) {
-        bool someTrue = false;
-        for (int j = 0; not someTrue and j < clauses[i].size(); ++j)
-            someTrue = (current_value_in_model(clauses[i][j]) == TRUE);
-
-        if (not someTrue) {
-            cout << "Error in model, clause is not satisfied:";
-            for (int j = 0; j < clauses[i].size(); ++j) cout << clauses[i][j] << " ";
-            cout << endl;
-            exit(1);
-        }
-    }
-}
-
-void finish_with_result(bool satisfiable) {
-    cerr << "temps: " << total.stop() << " ms" << endl;
-
-    cerr << "decisions: " << decisions << endl
-         << "propagations: " << propagations << endl;
-
-    if (satisfiable) {
-        check_model();
-        cout << "SATISFIABLE" << endl;
-        exit(10);
-    }
-    else {
-        cout << "UNSATISFIABLE" << endl;
-        exit(20);
-    }
-}
-
-
-void take_care_of_initial_unit_clauses() {
-    for (uint i = 0; i < n_clauses; ++i)
-        if (clauses[i].size() == 1) {
-            int lit = clauses[i][0];
-            int val = current_value_in_model(lit);
-            if (val == FALSE) finish_with_result(false);
-            else if (val == UNDEF) set_lit_to_true(lit);
-        }
-}
+/***************************/
+/** MAIN & DPLL ALGORITHM **/
+/***************************/
 
 void run_dpll() {
     while (true) {
@@ -306,14 +316,17 @@ void run_dpll() {
         }
 
         int decision_lit = get_next_decision_literal();
-        if (decision_lit == ALL_LITERALS_DEFINED)
-            finish_with_result(true);
+        if (decision_lit == ALL_LITERALS_DEFINED) finish_with_result(true);
 
         decide_literal_true(decision_lit);
-    }
-}
+}   }
 
 int main() {
+    cout.setf(ios::fixed);
+    cout.precision(3);
+
+    begin_clk = clock();
+
     init_data_structures();
 
     take_care_of_initial_unit_clauses();
