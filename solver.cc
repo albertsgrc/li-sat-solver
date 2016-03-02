@@ -1,6 +1,7 @@
 #include <iostream>
 #include <algorithm>
 #include <vector>
+#include <stdlib.h>
 #include <ctime>
 using namespace std;
 
@@ -40,8 +41,8 @@ clock_t begin_clk;
 /** PROPAGATION OPTIMIZATION DS **/
 /*********************************/
 
-vector<vector<vector<int>* > > clauses_pos_by_var;
-vector<vector<vector<int>* > > clauses_neg_by_var;
+vector<vector<vector<int>* > > clauses_var_positive;
+vector<vector<vector<int>* > > clauses_var_negative;
 
 /*******************/
 /** HEURISTICS DS **/
@@ -53,22 +54,6 @@ vector<int> vars_sorted_by_most_occurring;
 /***********************/
 /** TRIVIAL FUNCTIONS **/
 /***********************/
-
-void read_clauses() {
-    char c = cin.get();
-    while (c == 'c') {
-        while (c != '\n') c = cin.get();
-        c = cin.get();
-    }
-
-    string aux;
-    cin >> aux >> n_vars >> n_clauses;
-    clauses.resize(n_clauses);
-
-    for (uint i = 0; i < n_clauses; ++i) {
-        int lit;
-        while (cin >> lit and lit != 0) clauses[i].push_back(lit);
-}   }
 
 // IDEA: Reverse condition
 inline int current_value_in_model(int lit) {
@@ -124,7 +109,7 @@ void take_care_of_initial_unit_clauses() {
 /***********/
 /** UTILS **/
 /***********/
-
+/*
 int get_var_index_in_clause(int clause, int var) {
     for (int j = 0; j < clauses[clause].size(); ++j) {
         int lit = clauses[clause][j];
@@ -132,76 +117,86 @@ int get_var_index_in_clause(int clause, int var) {
     }
 
     return UNDEF;
-}
+}*/
 
+/*
 inline bool var_is_in_clause(int clause, int var) {
     return get_var_index_in_clause(clause, var) != UNDEF;
-}
-
-/***********************************/
-/** PROPAGATION DS INITIALIZATION **/
-/***********************************/
-
-void get_var_appearance_info() {
-    clauses_pos_by_var.resize(n_vars + 1);
-    clauses_neg_by_var.resize(n_vars + 1);
-
-    for (int var = 1; var <= n_vars; ++var)
-        for (int clause = 0; clause < n_clauses; ++clause) {
-            int index = get_var_index_in_clause(clause, var);
-
-            if (index != UNDEF) {
-                if (clauses[clause][index] > 0) clauses_pos_by_var[var].push_back(&clauses[clause]);
-                else clauses_neg_by_var[var].push_back(&clauses[clause]);
-            }
-        }
-}
+}*/
 
 /*****************************/
 /** HEURISTICS COMPUTATIONS **/
 /*****************************/
-
-int get_var_occurrences(int var) {
-    int n_occurrences = 0;
-
-    for (int clause = 0; clause < n_clauses; ++clause)
-        if (var_is_in_clause(clause, var)) ++n_occurrences;
-
-    return n_occurrences;
-}
 
 inline bool occurrence_sort(int var_1, int var_2) {
     return var_occurrences[var_1] > var_occurrences[var_2];
 }
 
 void assign_occurrence_sorted_var_list() {
-    var_occurrences.resize(n_vars + 1);
     vars_sorted_by_most_occurring.resize(n_vars);
 
-    for (int var = 1; var <= n_vars; ++var) {
-        var_occurrences[var] = get_var_occurrences(var);
+    for (int var = 1; var <= n_vars; ++var)
         vars_sorted_by_most_occurring[var-1] = var;
-    }
 
     sort(vars_sorted_by_most_occurring.begin(),
          vars_sorted_by_most_occurring.end(),
          occurrence_sort);
 }
 
-/*******************************************/
-/** DATA STRUCTURE INITIALIZATION MANAGER **/
-/*******************************************/
+/***********************************/
+/** DATA STRUCTURE INITIALIZATION **/
+/***********************************/
 
-void init_data_structures() {
-    read_clauses();
+void skip_comments() {
+    char c = cin.get();
+    while (c == 'c') {
+        while (c != '\n') c = cin.get();
+        c = cin.get();
+    }
+}
 
-    model.resize(n_vars + 1, UNDEF);
+void read_header() {
+    string aux;
+    cin >> aux >> n_vars >> n_clauses;
+}
 
-    get_var_appearance_info();
+void create_data_structures() {
+    int greatest_var = n_vars + 1;
 
-    assign_occurrence_sorted_var_list();
+    clauses.resize(n_clauses);
+    model.resize(greatest_var, UNDEF);
+    var_occurrences.resize(greatest_var, 0);
+    clauses_var_positive.resize(greatest_var);
+    clauses_var_negative.resize(greatest_var);
+}
+
+void read_clauses_and_compute_data_structures() {
+    for (uint i = 0; i < n_clauses; ++i) {
+        int lit;
+        while (cin >> lit and lit != 0) {
+            int var = abs(lit);
+            ++var_occurrences[var];
+
+            if (lit > 0) clauses_var_positive[var].push_back(&clauses[i]);
+            else         clauses_var_negative[var].push_back(&clauses[i]);
+
+            clauses[i].push_back(lit);
+        }
+    }
 
     ind_next_lit_to_propagate = decision_level = decisions = propagations = 0;
+}
+
+void init_data_structures() {
+    skip_comments();
+
+    read_header();
+
+    create_data_structures();
+
+    read_clauses_and_compute_data_structures();
+
+    assign_occurrence_sorted_var_list();
 }
 
 /***************************************************************/
@@ -222,8 +217,8 @@ inline bool propagate() {
     int lit_to_propagate = model_stack[ind_next_lit_to_propagate];
 
     vector<vector<int>* >& clauses_opposite = lit_to_propagate > 0 ?
-                                        clauses_neg_by_var[lit_to_propagate] :
-                                        clauses_pos_by_var[-lit_to_propagate];
+                                        clauses_var_negative[lit_to_propagate] :
+                                        clauses_var_positive[-lit_to_propagate];
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
         // TODO: Mirar si es pot marcar el nombre de clausules indefinides dinamicament
