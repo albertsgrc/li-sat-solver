@@ -227,17 +227,17 @@ inline bool propagate() {
         int last_lit_undef;
         bool some_lit_true = false;
 
-        for (int j = 0; not some_lit_true and num_undefs < 2 and j < clause.size(); ++j) {
+        for (int j = 0; not some_lit_true and j < clause.size(); ++j) {
             int lit = clause[j];
             int val = current_value_in_model(lit);
 
-            if (val == TRUE) some_lit_true = true;
-            else if (val == UNDEF) { ++num_undefs; last_lit_undef = lit; }
+            if (val == UNDEF) { ++num_undefs; last_lit_undef = lit; }
+            else if (val == TRUE) some_lit_true = true;
         }
 
-        if (not some_lit_true) {
-            if (num_undefs == 0) return true;
-            else if (num_undefs == 1) set_lit_to_true(last_lit_undef);
+        if (not some_lit_true and num_undefs < 2) {
+            if (num_undefs == 1) set_lit_to_true(last_lit_undef);
+            else return true;
         }
     }
 
