@@ -7,6 +7,8 @@ e = child.execSync
 
 instances = fs.readdirSync './instances'
 
+###
+
 e("make")
 
 for instance in instances when Number(instance.match(/^vars-(\d{3})-.*\.cnf$/)[1]) <= THRESHOLD
@@ -22,3 +24,5 @@ for instance in instances when Number(instance.match(/^vars-(\d{3})-.*\.cnf$/)[1
     console.log stats
 
 e("rm -f ./stats.txt")
+
+###
