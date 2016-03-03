@@ -1,23 +1,23 @@
 fs = require 'fs'
 child = require 'child_process'
 
-THRESHOLD = 200
+THRESHOLD = 300
 
 e = child.execSync
 
 instances = fs.readdirSync './instances'
 
-#e("make")
+e("make")
 
 for instance in instances when Number(instance.match(/^vars-(\d{3})-.*\.cnf$/)[1]) <= THRESHOLD
     try
-        e("./solver < instances/#{instance} > /dev/null")
+        e("./solver < instances/#{instance} > stats.txt")
     catch err
 
-    #stats = fs.readFileSync "./stats.txt", "utf-8"
+    stats = fs.readFileSync "./stats.txt", "utf-8"
 
-    #console.log instance
-    #console.log "------------------"
-    #console.log stats
+    console.log instance
+    console.log "------------------"
+    console.log stats
 
-#e("rm -f ./stats.txt")
+e("rm -f ./stats.txt")

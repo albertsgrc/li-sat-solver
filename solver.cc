@@ -9,12 +9,15 @@ using namespace std;
 /** CONSTANTS **/
 /***************/
 
-#define UNDEF -1
-#define TRUE 1
-#define FALSE 0
-
+const int UNDEF = -1;
+const int TRUE = 1;
+const int FALSE = 0;
 const int ALL_LITERALS_DEFINED = 0;
 const int MARK_UPPER_IS_DECISION = 0;
+
+const float OCCURRENCE_HEURISTIC_FACTOR = 0.1f;
+const int HEURISTIC_RESET_REDUCTION_FACTOR = 2;
+const int MAX_CONFLICTS_UNTIL_RESET = 500;
 
 /***************************/
 /** BASIC DATA STRUCTURES **/
@@ -33,29 +36,28 @@ uint decision_level;
 
 // Statistics
 
-uint decisions;
-uint propagations;
+unsigned long long decisions;
+unsigned long long propagations;
 clock_t begin_clk;
 
 /*********************************/
 /** PROPAGATION OPTIMIZATION DS **/
 /*********************************/
 
-vector<vector<vector<int>* > > clauses_var_positive;
-vector<vector<vector<int>* > > clauses_var_negative;
+vector<vector<vector<int>* > > clauses_where_var_positive;
+vector<vector<vector<int>* > > clauses_where_var_negative;
 
 /*******************/
 /** HEURISTICS DS **/
 /*******************/
 
-vector<int> var_occurrences;
-vector<int> vars_sorted_by_most_occurring;
+int conflicts_since_last_reset;
+vector<int> heuristic_value;
 
 /***********************/
 /** TRIVIAL FUNCTIONS **/
 /***********************/
 
-// IDEA: Reverse condition
 inline int current_value_in_model(int lit) {
     if (lit >= 0) return model[lit];
     else {
@@ -63,7 +65,6 @@ inline int current_value_in_model(int lit) {
         else return 1 - model[-lit];
 }   }
 
-// IDEA: Reverse condition
 inline void set_lit_to_true(int lit) {
     if (lit > 0) model[lit] = TRUE;
     else model[-lit] = FALSE;
@@ -106,41 +107,15 @@ void take_care_of_initial_unit_clauses() {
             else if (val == UNDEF) set_lit_to_true(lit);
 }   }   }
 
-/***********/
-/** UTILS **/
-/***********/
-/*
-int get_var_index_in_clause(int clause, int var) {
-    for (int j = 0; j < clauses[clause].size(); ++j) {
-        int lit = clauses[clause][j];
-        if (lit == var or lit == -var) return j;
-    }
-
-    return UNDEF;
-}*/
-
-/*
-inline bool var_is_in_clause(int clause, int var) {
-    return get_var_index_in_clause(clause, var) != UNDEF;
-}*/
-
 /*****************************/
 /** HEURISTICS COMPUTATIONS **/
 /*****************************/
 
-inline bool occurrence_sort(int var_1, int var_2) {
-    return var_occurrences[var_1] > var_occurrences[var_2];
-}
-
-void assign_occurrence_sorted_var_list() {
-    vars_sorted_by_most_occurring.resize(n_vars);
+void reset_conflict_info() {
+    conflicts_since_last_reset = 0;
 
     for (int var = 1; var <= n_vars; ++var)
-        vars_sorted_by_most_occurring[var-1] = var;
-
-    sort(vars_sorted_by_most_occurring.begin(),
-         vars_sorted_by_most_occurring.end(),
-         occurrence_sort);
+        heuristic_value[var] /= HEURISTIC_RESET_REDUCTION_FACTOR;
 }
 
 /***********************************/
@@ -165,9 +140,9 @@ void create_data_structures() {
 
     clauses.resize(n_clauses);
     model.resize(greatest_var, UNDEF);
-    var_occurrences.resize(greatest_var, 0);
-    clauses_var_positive.resize(greatest_var);
-    clauses_var_negative.resize(greatest_var);
+    heuristic_value.resize(greatest_var, 0);
+    clauses_where_var_positive.resize(greatest_var);
+    clauses_where_var_negative.resize(greatest_var);
 }
 
 void read_clauses_and_compute_data_structures() {
@@ -175,16 +150,20 @@ void read_clauses_and_compute_data_structures() {
         int lit;
         while (cin >> lit and lit != 0) {
             int var = abs(lit);
-            ++var_occurrences[var];
+            ++heuristic_value[var];
 
-            if (lit > 0) clauses_var_positive[var].push_back(&clauses[i]);
-            else         clauses_var_negative[var].push_back(&clauses[i]);
+            if (lit > 0) clauses_where_var_positive[var].push_back(&clauses[i]);
+            else         clauses_where_var_negative[var].push_back(&clauses[i]);
 
             clauses[i].push_back(lit);
         }
     }
 
-    ind_next_lit_to_propagate = decision_level = decisions = propagations = 0;
+    for (int var = 1; var <= n_vars; ++var)
+        heuristic_value[var] *= OCCURRENCE_HEURISTIC_FACTOR;
+
+    ind_next_lit_to_propagate = decision_level = decisions = propagations =
+    conflicts_since_last_reset = 0;
 }
 
 void init_data_structures() {
@@ -195,8 +174,6 @@ void init_data_structures() {
     create_data_structures();
 
     read_clauses_and_compute_data_structures();
-
-    assign_occurrence_sorted_var_list();
 }
 
 /***************************************************************/
@@ -204,21 +181,25 @@ void init_data_structures() {
 /***************************************************************/
 
 inline int get_next_decision_literal() {
-    for (int i = 0; i < n_vars; ++i) {
-        int var = vars_sorted_by_most_occurring[i];
+    int max_heuristic_value = -1;
+    int max_var;
 
-        if (model[var] == UNDEF) return var;
-    }
+    for (int var = 1; var <= n_vars; ++var)
+        if (model[var] == UNDEF and heuristic_value[var] > max_heuristic_value) {
+            max_heuristic_value = heuristic_value[var];
+            max_var = var;
+        }
 
-    return ALL_LITERALS_DEFINED;
+    return max_heuristic_value != -1 ? max_var : ALL_LITERALS_DEFINED;
 }
 
 inline bool propagate() {
     int lit_to_propagate = model_stack[ind_next_lit_to_propagate];
 
+    int var = abs(lit_to_propagate);
     vector<vector<int>* >& clauses_opposite = lit_to_propagate > 0 ?
-                                        clauses_var_negative[lit_to_propagate] :
-                                        clauses_var_positive[-lit_to_propagate];
+                                                clauses_where_var_negative[var] :
+                                                clauses_where_var_positive[var];
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
         // TODO: Mirar si es pot marcar el nombre de clausules indefinides dinamicament
@@ -227,6 +208,7 @@ inline bool propagate() {
         int last_lit_undef;
         bool some_lit_true = false;
 
+        // Could stop when num_undefs >= 2, but doesn't pay off in clauses of size 3
         for (int j = 0; not some_lit_true and j < clause.size(); ++j) {
             int lit = clause[j];
             int val = current_value_in_model(lit);
@@ -237,7 +219,15 @@ inline bool propagate() {
 
         if (not some_lit_true and num_undefs < 2) {
             if (num_undefs == 1) set_lit_to_true(last_lit_undef);
-            else return true;
+            else {
+                ++heuristic_value[var];
+                ++conflicts_since_last_reset;
+
+                if (conflicts_since_last_reset == MAX_CONFLICTS_UNTIL_RESET)
+                    reset_conflict_info();
+
+                return true;
+            }
         }
     }
 
@@ -260,8 +250,6 @@ inline bool propagate_gives_conflict() {
 /***************/
 
 inline void decide_literal_true(int decision_lit) {
-    ++decisions;
-
     model_stack.push_back(MARK_UPPER_IS_DECISION);
     ++ind_next_lit_to_propagate;
     ++decision_level;
@@ -269,9 +257,7 @@ inline void decide_literal_true(int decision_lit) {
 }
 
 inline void decide_literal_false(int decision_lit) {
-    ++decisions;
-
-    model_stack.pop_back(); // remove the DL mark
+    model_stack.pop_back(); // Remove decision mark
     --decision_level;
     ind_next_lit_to_propagate = model_stack.size();
     set_lit_to_true(-decision_lit); // reverse last decision
@@ -309,6 +295,7 @@ void run_dpll() {
         int decision_lit = get_next_decision_literal();
         if (decision_lit == ALL_LITERALS_DEFINED) finish_with_result(true);
 
+        ++decisions;
         decide_literal_true(decision_lit);
 }   }
 
