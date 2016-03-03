@@ -15,9 +15,9 @@ const int FALSE = 0;
 const int ALL_LITERALS_DEFINED = 0;
 const int MARK_UPPER_IS_DECISION = 0;
 
-const float OCCURRENCE_HEURISTIC_FACTOR = 0.1f;
+const float OCCURRENCE_HEURISTIC_FACTOR = 1;
 const int HEURISTIC_RESET_REDUCTION_FACTOR = 2;
-const int MAX_CONFLICTS_UNTIL_RESET = 500;
+const int MAX_CONFLICTS_UNTIL_RESET = 50000;
 
 /***************************/
 /** BASIC DATA STRUCTURES **/

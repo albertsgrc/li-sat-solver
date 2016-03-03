@@ -20,7 +20,7 @@
       continue;
     }
     try {
-      e("./solver < instances/" + instance + " > stats.txt");
+      e("picosat < instances/" + instance + " > stats.txt");
     } catch (_error) {
       err = _error;
     }
