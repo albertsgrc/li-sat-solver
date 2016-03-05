@@ -9,13 +9,15 @@ using namespace std;
 /** CONSTANTS **/
 /***************/
 
+// The following three constants MUST NOT be changed
 const int UNDEF = 0;
 const int TRUE = 1;
 const int FALSE = -1;
+
 const int ALL_LITERALS_DEFINED = 0;
 const int MARK_UPPER_IS_DECISION = 0;
 
-const uint MAX_CONFLICTS_UNTIL_RESET = 50000;
+const uint MAX_CONFLICTS_UNTIL_DEVALUATION = 50000;
 
 /***************************/
 /** BASIC DATA STRUCTURES **/
@@ -49,23 +51,34 @@ vector<vector<vector<int>* > > clauses_where_var_negative;
 /** HEURISTICS DS **/
 /*******************/
 
-uint conflicts_since_last_reset;
+uint conflicts_since_last_devaluation;
 vector<int> heuristic_value;
 
 /***********************/
 /** TRIVIAL FUNCTIONS **/
 /***********************/
 
+// I optimized this method with bit hacks because it was the responsible of
+// a great deal of the program execution time (Ahmdal law). It avoids branching conditions
+// (if, else..) which are usually far more expensive than bit-level operations
 inline int current_value_in_model(int lit) {
-    unsigned mask = -(lit < 0);
-    uint abs_v = (lit ^ mask) - mask;
-    int val = model[abs_v];
-    return (val ^ mask) - mask;
+    unsigned mask = -(lit < 0); // if lit < 0 then mask = 0xFF.. else mask = 0
+    // this computes ~lit + 1 (i.e -lit) only if mask was 0xFF.. (i.e lit was < 0)
+    // so overall it computes absolute value of lit
+    uint abs_value_of_lit = (lit ^ mask) - mask;
+    int value = model[abs_value_of_lit];
+    // This computes -val only if mask is 0xFFF... (i.e lit was < 0)
+    // So if val was UNDEF (0) it remains the same, if it was TRUE (1) it becomes
+    // FALSE (-1) and if it was FALSE (-1) it becomes TRUE (1)
+    return (value ^ mask) - mask;
 }
 
 inline void set_lit_to_true(int lit) {
-    if (lit > 0) model[lit] = TRUE;
-    else model[-lit] = FALSE;
+    unsigned mask = -(lit < 0);
+    uint abs_value_of_lit = (lit ^ mask) - mask;
+    // Again, the previous code has computed abs value of lit
+    // mask + (mask == 0) is 0 + 1 (TRUE) if mask is 0 and -1 + 0 if mask is -1 (FALSE)
+    model[abs_value_of_lit] = mask + (mask == 0);
 
     model_stack.push_back(lit);
 }
@@ -147,7 +160,7 @@ void read_clauses_and_compute_data_structures() {
     }
 
     ind_next_lit_to_propagate = decision_level = decisions = propagations =
-    conflicts_since_last_reset = 0;
+    conflicts_since_last_devaluation = 0;
 }
 
 void init_data_structures() {
@@ -187,7 +200,7 @@ inline bool propagate() {
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
         vector<int>& clause = *clauses_opposite[i];
-        int num_undefs = 0;
+        uint num_undefs = 0;
         int last_lit_undef;
         bool some_lit_true = false;
 
@@ -196,18 +209,20 @@ inline bool propagate() {
             int lit = clause[j];
             int val = current_value_in_model(lit);
 
-            if (val == UNDEF) { ++num_undefs; last_lit_undef = lit; }
-            else if (val == TRUE) some_lit_true = true;
+            num_undefs = num_undefs + (val==UNDEF);
+            // No importa si val es 1, ya que entonces nunca miraremos last_lit_undef
+            last_lit_undef = lit - ((lit - last_lit_undef) & val);
+            some_lit_true = val == TRUE;
         }
 
         if (not some_lit_true and num_undefs < 2) {
             if (num_undefs == 1) set_lit_to_true(last_lit_undef);
             else {
                 ++heuristic_value[var_being_propagated];
-                ++conflicts_since_last_reset;
+                ++conflicts_since_last_devaluation;
 
-                if (conflicts_since_last_reset == MAX_CONFLICTS_UNTIL_RESET) {
-                    conflicts_since_last_reset = 0;
+                if (conflicts_since_last_devaluation == MAX_CONFLICTS_UNTIL_DEVALUATION) {
+                    conflicts_since_last_devaluation = 0;
 
                     for (int var = 1; var <= n_vars; ++var)
                         heuristic_value[var] /= 2;
