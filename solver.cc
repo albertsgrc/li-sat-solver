@@ -9,15 +9,13 @@ using namespace std;
 /** CONSTANTS **/
 /***************/
 
-const int UNDEF = -1;
+const int UNDEF = 0;
 const int TRUE = 1;
-const int FALSE = 0;
+const int FALSE = -1;
 const int ALL_LITERALS_DEFINED = 0;
 const int MARK_UPPER_IS_DECISION = 0;
 
-const float OCCURRENCE_HEURISTIC_FACTOR = 1;
-const int HEURISTIC_RESET_REDUCTION_FACTOR = 2;
-const int MAX_CONFLICTS_UNTIL_RESET = 50000;
+const uint MAX_CONFLICTS_UNTIL_RESET = 50000;
 
 /***************************/
 /** BASIC DATA STRUCTURES **/
@@ -36,8 +34,8 @@ uint decision_level;
 
 // Statistics
 
-unsigned long long decisions;
-unsigned long long propagations;
+unsigned long decisions;
+unsigned long propagations;
 clock_t begin_clk;
 
 /*********************************/
@@ -51,7 +49,7 @@ vector<vector<vector<int>* > > clauses_where_var_negative;
 /** HEURISTICS DS **/
 /*******************/
 
-int conflicts_since_last_reset;
+uint conflicts_since_last_reset;
 vector<int> heuristic_value;
 
 /***********************/
@@ -59,11 +57,11 @@ vector<int> heuristic_value;
 /***********************/
 
 inline int current_value_in_model(int lit) {
-    if (lit >= 0) return model[lit];
-    else {
-        if (model[-lit] == UNDEF) return UNDEF;
-        else return 1 - model[-lit];
-}   }
+    unsigned mask = -(lit < 0);
+    uint abs_v = (lit ^ mask) - mask;
+    int val = model[abs_v];
+    return (val ^ mask) - mask;
+}
 
 inline void set_lit_to_true(int lit) {
     if (lit > 0) model[lit] = TRUE;
@@ -107,17 +105,6 @@ void take_care_of_initial_unit_clauses() {
             else if (val == UNDEF) set_lit_to_true(lit);
 }   }   }
 
-/*****************************/
-/** HEURISTICS COMPUTATIONS **/
-/*****************************/
-
-void reset_conflict_info() {
-    conflicts_since_last_reset = 0;
-
-    for (int var = 1; var <= n_vars; ++var)
-        heuristic_value[var] /= HEURISTIC_RESET_REDUCTION_FACTOR;
-}
-
 /***********************************/
 /** DATA STRUCTURE INITIALIZATION **/
 /***********************************/
@@ -136,7 +123,7 @@ void read_header() {
 }
 
 void create_data_structures() {
-    int greatest_var = n_vars + 1;
+    uint greatest_var = n_vars + 1;
 
     clauses.resize(n_clauses);
     model.resize(greatest_var, UNDEF);
@@ -159,9 +146,6 @@ void read_clauses_and_compute_data_structures() {
         }
     }
 
-    for (int var = 1; var <= n_vars; ++var)
-        heuristic_value[var] *= OCCURRENCE_HEURISTIC_FACTOR;
-
     ind_next_lit_to_propagate = decision_level = decisions = propagations =
     conflicts_since_last_reset = 0;
 }
@@ -182,9 +166,9 @@ void init_data_structures() {
 
 inline int get_next_decision_literal() {
     int max_heuristic_value = -1;
-    int max_var;
+    uint max_var;
 
-    for (int var = 1; var <= n_vars; ++var)
+    for (uint var = 1; var <= n_vars; ++var)
         if (model[var] == UNDEF and heuristic_value[var] > max_heuristic_value) {
             max_heuristic_value = heuristic_value[var];
             max_var = var;
@@ -194,15 +178,14 @@ inline int get_next_decision_literal() {
 }
 
 inline bool propagate() {
-    int lit_to_propagate = model_stack[ind_next_lit_to_propagate];
+    int lit_being_propagated = model_stack[ind_next_lit_to_propagate];
 
-    int var = abs(lit_to_propagate);
-    vector<vector<int>* >& clauses_opposite = lit_to_propagate > 0 ?
-                                                clauses_where_var_negative[var] :
-                                                clauses_where_var_positive[var];
+    uint var_being_propagated = abs(lit_being_propagated);
+    vector<vector<int>* >& clauses_opposite = lit_being_propagated > 0 ?
+                                                clauses_where_var_negative[var_being_propagated] :
+                                                clauses_where_var_positive[var_being_propagated];
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
-        // TODO: Mirar si es pot marcar el nombre de clausules indefinides dinamicament
         vector<int>& clause = *clauses_opposite[i];
         int num_undefs = 0;
         int last_lit_undef;
@@ -220,11 +203,15 @@ inline bool propagate() {
         if (not some_lit_true and num_undefs < 2) {
             if (num_undefs == 1) set_lit_to_true(last_lit_undef);
             else {
-                ++heuristic_value[var];
+                ++heuristic_value[var_being_propagated];
                 ++conflicts_since_last_reset;
 
-                if (conflicts_since_last_reset == MAX_CONFLICTS_UNTIL_RESET)
-                    reset_conflict_info();
+                if (conflicts_since_last_reset == MAX_CONFLICTS_UNTIL_RESET) {
+                    conflicts_since_last_reset = 0;
+
+                    for (int var = 1; var <= n_vars; ++var)
+                        heuristic_value[var] /= 2;
+                }
 
                 return true;
             }
