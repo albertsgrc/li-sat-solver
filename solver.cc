@@ -17,8 +17,6 @@ const int FALSE = -1;
 const int ALL_LITERALS_DEFINED = 0;
 const int MARK_UPPER_IS_DECISION = 0;
 
-const uint MAX_CONFLICTS_UNTIL_DEVALUATION = 50000;
-
 /***************************/
 /** BASIC DATA STRUCTURES **/
 /***************************/
@@ -51,7 +49,6 @@ vector<vector<vector<int>* > > clauses_where_var_negative;
 /** HEURISTICS DS **/
 /*******************/
 
-uint conflicts_since_last_devaluation;
 vector<int> heuristic_value;
 
 /***********************/
@@ -159,8 +156,7 @@ void read_clauses_and_compute_data_structures() {
         }
     }
 
-    ind_next_lit_to_propagate = decision_level = decisions = propagations =
-    conflicts_since_last_devaluation = 0;
+    ind_next_lit_to_propagate = decision_level = decisions = propagations = 0;
 }
 
 void init_data_structures() {
@@ -219,15 +215,6 @@ inline bool propagate() {
             if (num_undefs == 1) set_lit_to_true(last_lit_undef);
             else {
                 ++heuristic_value[var_being_propagated];
-                ++conflicts_since_last_devaluation;
-
-                if (conflicts_since_last_devaluation == MAX_CONFLICTS_UNTIL_DEVALUATION) {
-                    conflicts_since_last_devaluation = 0;
-
-                    for (int var = 1; var <= n_vars; ++var)
-                        heuristic_value[var] /= 2;
-                }
-
                 return true;
             }
         }
