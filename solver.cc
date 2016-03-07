@@ -8,7 +8,6 @@ using namespace std;
 /***************/
 /** CONSTANTS **/
 /***************/
-
 // The following three constants MUST NOT be changed
 const int UNDEF = 0;
 const int TRUE = 1;
@@ -20,7 +19,6 @@ const int MARK_UPPER_IS_DECISION = 0;
 /***************************/
 /** BASIC DATA STRUCTURES **/
 /***************************/
-
 uint n_clauses;
 vector<vector<int> > clauses;
 
@@ -33,7 +31,6 @@ vector<int> model_stack;
 uint decision_level;
 
 // Statistics
-
 unsigned long decisions;
 unsigned long propagations;
 clock_t begin_clk;
@@ -41,20 +38,17 @@ clock_t begin_clk;
 /*********************************/
 /** PROPAGATION OPTIMIZATION DS **/
 /*********************************/
-
 vector<vector<vector<int>* > > clauses_where_var_positive;
 vector<vector<vector<int>* > > clauses_where_var_negative;
 
 /*******************/
 /** HEURISTICS DS **/
 /*******************/
-
 vector<int> heuristic_value;
 
 /***********************/
 /** TRIVIAL FUNCTIONS **/
 /***********************/
-
 // I optimized this method with bit hacks because it was the responsible of
 // a great deal of the program execution time (Ahmdal law). It avoids branching conditions
 // (if, else..) which are usually far more expensive than bit-level operations
@@ -73,7 +67,7 @@ inline int current_value_in_model(int lit) {
 inline void set_lit_to_true(int lit) {
     unsigned mask = -(lit < 0);
     uint abs_value_of_lit = (lit ^ mask) - mask;
-    // Again, the previous code has computed abs value of lit
+    // Again, the previous code has computed absolute value of lit
     // mask + (mask == 0) is 0 + 1 (TRUE) if mask is 0 and -1 + 0 if mask is -1 (FALSE)
     model[abs_value_of_lit] = mask + (mask == 0);
 
@@ -85,7 +79,6 @@ void check_model() {
         bool someTrue = false;
         for (int j = 0; not someTrue and j < clauses[i].size(); ++j)
             someTrue = (current_value_in_model(clauses[i][j]) == TRUE);
-
         if (not someTrue) {
             cout << "Error in model, clause is not satisfied:";
             for (int j = 0; j < clauses[i].size(); ++j) cout << clauses[i][j] << " ";
@@ -95,13 +88,11 @@ void check_model() {
 
 void finish_with_result(bool satisfiable) {
     double elapsed_secs = double(clock() - begin_clk)/CLOCKS_PER_SEC;
-    cout << "time: " << elapsed_secs << " secs" << endl;
+    cout << "{ \"time\": " << elapsed_secs << ", \"decisions\": " << decisions
+         << ", \"propagations/sec\": " << propagations/elapsed_secs
+         << ", \"satisfiable\": " << (satisfiable ? "true" : "false") << " }" << endl;
 
-    cout << "decisions: " << decisions << endl
-         << "propagations/sec: " << propagations/elapsed_secs << endl;
-
-    if (satisfiable) { check_model(); cout << "SATISFIABLE" << endl; }
-    else cout << "UNSATISFIABLE" << endl;
+    if (satisfiable) check_model();
 
     exit(satisfiable ? 10 : 20);
 }
@@ -118,14 +109,12 @@ void take_care_of_initial_unit_clauses() {
 /***********************************/
 /** DATA STRUCTURE INITIALIZATION **/
 /***********************************/
-
 void skip_comments() {
     char c = cin.get();
     while (c == 'c') {
         while (c != '\n') c = cin.get();
         c = cin.get();
-    }
-}
+}   }
 
 void read_header() {
     string aux;
@@ -172,7 +161,6 @@ void init_data_structures() {
 /***************************************************************/
 /** IMPORTANT METHODS - get_next_decision_literal & propagate **/
 /***************************************************************/
-
 inline int get_next_decision_literal() {
     int max_heuristic_value = -1;
     uint max_var;
@@ -191,13 +179,13 @@ inline bool propagate() {
 
     uint var_being_propagated = abs(lit_being_propagated);
     vector<vector<int>* >& clauses_opposite = lit_being_propagated > 0 ?
-                                                clauses_where_var_negative[var_being_propagated] :
-                                                clauses_where_var_positive[var_being_propagated];
+                            clauses_where_var_negative[var_being_propagated] :
+                            clauses_where_var_positive[var_being_propagated];
 
     for (int i = 0; i < clauses_opposite.size(); ++i) {
         vector<int>& clause = *clauses_opposite[i];
         uint num_undefs = 0;
-        int last_lit_undef;
+        int last_lit_undef = 0;
         bool some_lit_true = false;
 
         // Could stop when num_undefs >= 2, but doesn't pay off in clauses of size 3
@@ -205,9 +193,22 @@ inline bool propagate() {
             int lit = clause[j];
             int val = current_value_in_model(lit);
 
-            num_undefs = num_undefs + (val==UNDEF);
-            // No importa si val es 1, ya que entonces nunca miraremos last_lit_undef
+            // if (val == UNDEF) ++num_undefs;
+            num_undefs = num_undefs + (val == UNDEF);
+
+            /* if (val == UNDEF) last_lit_undef = lit;
+            Suppose val == UNDEF. Then, given UNDEF = 0, the right hand side
+            of the outermost substraction evaluates to 0 because there is
+            a bitwise and with val, which is 0, and so lit - 0 = lit, which is what we want.
+            Otherwise, val != UNDEF, so it could be TRUE (1) or FALSE (-1)
+            if val is TRUE we don't care about the result because we won't query
+            anymore for last_lit_undef. If val is FALSE then it is -1 and so
+            its bitwise representation is 1111.... (all 1's). This makes
+            the right hand side of the substraction to be (lit - last_lit_undef),
+            And so the outermost substraction evaluates to lit - (lit - last_lit_undef),
+            which is lit - lit + last_lit_undef which is last_lit_undef, which is what we wanted */
             last_lit_undef = lit - ((lit - last_lit_undef) & val);
+
             some_lit_true = val == TRUE;
         }
 
@@ -237,7 +238,6 @@ inline bool propagate_gives_conflict() {
 /***************/
 /** DECISIONS **/
 /***************/
-
 inline void decide_literal_true(int decision_lit) {
     model_stack.push_back(MARK_UPPER_IS_DECISION);
     ++ind_next_lit_to_propagate;
@@ -247,15 +247,14 @@ inline void decide_literal_true(int decision_lit) {
 
 inline void decide_literal_false(int decision_lit) {
     model_stack.pop_back(); // Remove decision mark
-    --decision_level;
     ind_next_lit_to_propagate = model_stack.size();
+    --decision_level;
     set_lit_to_true(-decision_lit); // reverse last decision
 }
 
 /***************************/
 /** DECISION BACKTRACKING **/
 /***************************/
-
 void backtrack() {
     uint i = model_stack.size() - 1;
     int lit;
@@ -273,7 +272,6 @@ void backtrack() {
 /***************************/
 /** MAIN & DPLL ALGORITHM **/
 /***************************/
-
 void run_dpll() {
     while (true) {
         while (propagate_gives_conflict()) {
@@ -289,8 +287,7 @@ void run_dpll() {
 }   }
 
 int main() {
-    cout.setf(ios::fixed);
-    cout.precision(3);
+    cout.setf(ios::fixed); cout.precision(3);
 
     begin_clk = clock();
 
